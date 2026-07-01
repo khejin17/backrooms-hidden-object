@@ -17,6 +17,16 @@ const REACH = 5.2;           // 요소 선택 사거리
 const AISLE_HALF = COL_SPACING / 2 - PILLAR_HALF; // 통로 반폭
 const LIMIT = 100;           // 시작점 기준 사방 이동 제한(걸음)
 
+// ---- 괴물 추격 파라미터 ----
+const WARN_T = 35;           // 이 시각(초)부터 경고 표시
+const SPAWN_T = 40;          // 이 시각(초)에 괴물 등장 & 추격 시작
+const CATCH_DIST = 1.25;     // 이 거리 안으로 들어오면 잡힘(게임 오버)
+const PLAYER_SPEED = 4.2;    // 플레이어 이동 속도
+const MON_SPEED = PLAYER_SPEED * 0.85;  // 괴물 속도 = 플레이어의 85% (≈3.57) — 계속 달리면 따돌릴 수 있음
+const HINT_T = 120;          // 2분까지 못 찾으면 첫 힌트 발동
+const HINT_INTERVAL = 30;    // 첫 힌트 이후 30초마다 반복
+const HINT_DUR = 7;          // 힌트(흰색 깜빡임 + 화살표) 지속 시간(초)
+
 // 찾아야 할 8가지 요소 (2번째 이미지 기준)
 const KINDS = [
   { id: "light",   name: "Fluorescent Light", ic: "💡" },
@@ -33,6 +43,8 @@ const KIND_IDS = KINDS.map((k) => k.id);
 // ============================================================
 // 유틸: 시드 난수
 // ============================================================
+// 게임을 실행(로드)할 때마다 달라지는 세션 시드 → 매 판 숨은요소 배치가 랜덤
+const SESSION_SEED = (Math.random() * 0x7fffffff) >>> 0;
 function hash2(x, y) {
   let h = x * 374761393 + y * 668265263;
   h = (h ^ (h >> 13)) * 1274126177;
@@ -206,7 +218,7 @@ function buildChunk(cx, cz) {
   group.add(ceil);
 
   // 기둥 + 천장 조명
-  const rng = mulberry32(hash2(cx, cz));
+  const rng = mulberry32((hash2(cx, cz) ^ SESSION_SEED) >>> 0);
   for (let i = 0; i < CHUNK_CELLS; i++) {
     for (let j = 0; j < CHUNK_CELLS; j++) {
       const gx = ox + i * COL_SPACING + COL_SPACING / 2;
@@ -404,6 +416,103 @@ function buildItem(kind, x, z, rng) {
   halo.name = "halo";
   g.add(halo);
 
+  // 힌트용 흰색 발광 기둥(2분 힌트 때만 켜짐) — 안개 무시로 밝게 대비
+  const beacon = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.16, 5.4, 14, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
+      side: THREE.DoubleSide, depthWrite: false, fog: false,
+    })
+  );
+  beacon.position.y = 2.7;
+  beacon.name = "beacon";
+  beacon.visible = false;
+  g.add(beacon);
+
+  return g;
+}
+
+// ============================================================
+// 괴물(레퍼런스 이미지 기반) — 키 크고 검은 그림자 형상
+// ============================================================
+const matEntity = new THREE.MeshStandardMaterial({
+  color: 0x080808, roughness: 1, metalness: 0,
+  emissive: 0x120404, emissiveIntensity: 0.5,
+});
+
+// 관절 세그먼트 체인으로 만든 다리(촉수) — 관절마다 위상을 지연시켜 물결이 아래로 전파됨
+function makeTentacle(phase) {
+  const group = new THREE.Group();
+  const SEGS = 7, SEG_LEN = 0.46;
+  const joints = [];
+  let parent = group;
+  for (let i = 0; i < SEGS; i++) {
+    const joint = new THREE.Group();
+    joint.position.y = (i === 0) ? 0 : -SEG_LEN;      // 각 관절은 이전 세그먼트 끝(아래)에 연결
+    const r0 = 0.05 * (1 - i / SEGS * 0.8);           // 위는 굵고 끝으로 갈수록 얇게
+    const r1 = 0.05 * (1 - (i + 1) / SEGS * 0.8);
+    const seg = new THREE.Mesh(
+      new THREE.CylinderGeometry(Math.max(0.012, r1), Math.max(0.016, r0), SEG_LEN, 6),
+      matEntity
+    );
+    seg.position.y = -SEG_LEN / 2;
+    joint.add(seg);
+    parent.add(joint);
+    parent = joint;
+    joints.push(joint);
+  }
+  group.userData = { joints, phase };
+  return group;
+}
+
+function buildMonster() {
+  const g = new THREE.Group();
+  const bodyH = 2.7;
+  const headY = bodyH;
+
+  // 중심 몸통(가는 척추) — 실루엣 유지
+  const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, bodyH, 8), matEntity);
+  spine.position.y = bodyH / 2; g.add(spine);
+
+  // 머리
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), matEntity);
+  head.position.y = headY + 0.05; head.scale.set(1, 1.15, 0.9); g.add(head);
+
+  // 챙 넓은 모자(레퍼런스의 특징)
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.62, 0.06, 20), matEntity);
+  brim.position.y = headY + 0.2; g.add(brim);
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.34, 16), matEntity);
+  crown.position.y = headY + 0.38; g.add(crown);
+
+  // 눈 두 개(붉은 발광)
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), eyeMat);
+    eye.position.set(s * 0.08, headY + 0.08, 0.19);
+    g.add(eye);
+  }
+
+  // ---- 머리 부분에서 시작해 바닥까지 늘어지며 물결치는 다리(촉수) ----
+  const N = 9;
+  const tentacles = [];
+  for (let k = 0; k < N; k++) {
+    const angle = (k / N) * Math.PI * 2;
+    const aim = new THREE.Group();
+    aim.position.set(0, headY - 0.12, 0);   // 머리 바로 아래에서 시작
+    aim.rotation.y = angle;                  // 머리 주위로 방사형 분포
+    const lean = 0.26 + (k % 3) * 0.06;      // 바깥으로 살짝 벌어져 늘어짐
+    const tent = makeTentacle(k * 1.35);
+    tent.rotation.x = lean;
+    tent.userData.lean = lean;
+    aim.add(tent);
+    g.add(aim);
+    tentacles.push(tent);
+  }
+
+  g.userData.tentacles = tentacles;
+  g.userData.bodyH = bodyH;
+  g.visible = false;
+  scene.add(g);
   return g;
 }
 
@@ -576,6 +685,97 @@ const winScreen = document.getElementById("winScreen");
 let started = false;
 let startTime = 0;
 
+// ---- 추격 상태 ----
+let gameOver = false;        // 잡혀서 종료
+let gameWon = false;         // 8개 다 찾아 우승
+let warned = false;          // 경고 배너 표시됨
+let monster = null;          // 괴물 그룹
+let monsterActive = false;   // 추격 중
+let monsterSpawnTime = 0;    // 괴물 등장 시각(performance.now)
+let hintEndsAt = 0;          // 현재 힌트 종료 시각(performance.now)
+let hintWasOn = false;       // 힌트 진행 중 플래그
+let nextHintAt = HINT_T;     // 다음 힌트 발동 시각(초) — 이후 HINT_INTERVAL마다 반복
+const warningEl = document.getElementById("warning");
+const dangerEl = document.getElementById("dangerVignette");
+const chaseHudEl = document.getElementById("chaseHud");
+const chaseDirEl = document.getElementById("chaseDir");
+const chaseDistEl = document.getElementById("chaseDist");
+// 바닥에 눕는 3D 힌트 화살표 (가장 가까운 미발견 요소 방향)
+let hintArrow3D = null;
+function buildHintArrow() {
+  const s = new THREE.Shape();          // +y 방향을 가리키는 화살표 도형
+  s.moveTo(-0.2, -0.75);
+  s.lineTo(0.2, -0.75);
+  s.lineTo(0.2, 0.15);
+  s.lineTo(0.5, 0.15);
+  s.lineTo(0, 0.85);
+  s.lineTo(-0.5, 0.15);
+  s.lineTo(-0.2, 0.15);
+  s.closePath();
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.9,
+    side: THREE.DoubleSide, depthWrite: false, fog: false,
+  });
+  const mesh = new THREE.Mesh(new THREE.ShapeGeometry(s), mat);
+  mesh.rotation.x = Math.PI / 2;        // 바닥에 눕힘: 도형 +y → 월드 +z
+  mesh.scale.setScalar(1.3);
+  const group = new THREE.Group();
+  group.add(mesh);
+  group.userData.mat = mat;
+  group.visible = false;
+  group.renderOrder = 6;
+  scene.add(group);
+  return group;
+}
+
+// ---- 간단한 WebAudio 심장박동 / 드론 ----
+const audio = {
+  ctx: null, drone: null, gain: null, beatOn: false, beatTimer: 0,
+  start() {
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.gain = this.ctx.createGain();
+      this.gain.gain.value = 0.0;
+      this.gain.connect(this.ctx.destination);
+      this.drone = this.ctx.createOscillator();
+      this.drone.type = "sawtooth";
+      this.drone.frequency.value = 42;
+      const df = this.ctx.createGain(); df.gain.value = 0.06;
+      this.drone.connect(df); df.connect(this.gain);
+      this.drone.start();
+    } catch (e) { /* 오디오 미지원 무시 */ }
+  },
+  // 근접도(0~1)에 따라 드론 세기 조절
+  setTension(x) {
+    if (!this.ctx) return;
+    this.gain.gain.setTargetAtTime(0.02 + x * 0.5, this.ctx.currentTime, 0.2);
+  },
+  beat(intensity) {           // 심장박동 한 번
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = "sine"; o.frequency.setValueAtTime(70, t);
+    o.frequency.exponentialRampToValueAtTime(35, t + 0.18);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35 * intensity, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(t); o.stop(t + 0.32);
+  },
+  roar() {                    // 등장 순간 굉음
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = "sawtooth"; o.frequency.setValueAtTime(160, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.9);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(t); o.stop(t + 1.2);
+  },
+};
+
 // 시작 화면 미리보기 그리드
 for (const k of KINDS) {
   const cell = document.createElement("div");
@@ -585,36 +785,257 @@ for (const k of KINDS) {
 }
 renderFoundList();
 
-async function begin(withCam) {
+const introEl = document.getElementById("intro");
+const introHintEl = document.getElementById("introHint");
+const introContinueEl = document.getElementById("introContinue");
+let usingCam = false;
+
+// 배경 음악(업로드한 트랙) — 첫 클릭(사용자 제스처)에서 재생 시작
+const bgmEl = document.getElementById("bgm");
+function startBgm() {
+  if (!bgmEl) return;
+  bgmEl.volume = 0.45;
+  const p = bgmEl.play();
+  if (p && p.catch) p.catch(() => {});   // 자동재생 차단 시 조용히 무시
+}
+
+// 시작 → 인트로 시네마틱 재생(웹캠은 백그라운드에서 로딩)
+function begin(withCam) {
   startScreen.style.display = "none";
-  started = true;
-  startTime = performance.now();
+  usingCam = withCam;
+  startBgm();
+  runIntro();
   if (withCam) {
     camWrap.classList.remove("cam-hidden");
     gestureLabel.textContent = "LOADING HAND TRACKING…";
-    try {
-      await hands.init();
-      await hands.startCamera();
-      handsOn = true;
-      camWrap.classList.add("cam-active");
-    } catch (e) {
-      console.error(e);
-      gestureLabel.textContent = "WEBCAM UNAVAILABLE — USE KEYBOARD";
-      camWrap.classList.add("cam-idle");
-    }
+    hands.init()
+      .then(() => hands.startCamera())
+      .then(() => { handsOn = true; camWrap.classList.add("cam-active"); })
+      .catch((e) => {
+        console.error(e);
+        gestureLabel.textContent = "WEBCAM UNAVAILABLE — USE KEYBOARD";
+        camWrap.classList.add("cam-idle");
+      });
   } else {
     camWrap.classList.add("cam-hidden");
   }
 }
+
+// 검은 화면 인트로: 한 줄씩 떠오른 뒤 안내 + 진입 버튼
+function runIntro() {
+  introEl.hidden = false;
+  const lines = introEl.querySelectorAll(".il");
+  lines.forEach((el, i) => setTimeout(() => el.classList.add("show"), 700 + i * 2000));
+  const afterLines = 700 + lines.length * 2000 + 400;
+  setTimeout(() => {
+    // 키보드 전용 플레이어에게 ESC 안내
+    introHintEl.textContent = usingCam
+      ? "Raise a hand to the webcam to move — or use W A S D."
+      : "Click to look around · Press ESC anytime to free the cursor and stop.";
+    introHintEl.classList.add("show");
+    introContinueEl.classList.add("show");
+  }, afterLines);
+}
+
+function actuallyStart() {
+  introEl.hidden = true;
+  started = true;
+  startTime = performance.now();
+  audio.start();
+  if (!usingCam) {
+    try {
+      const p = canvas.requestPointerLock && canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});   // 사용자 제스처 없을 때 조용히 무시
+    } catch (e) { /* noop */ }
+    showToast("Press ESC to free the cursor and stop the game");
+  }
+}
+introContinueEl.addEventListener("click", actuallyStart);
+
 document.getElementById("startBtn").addEventListener("click", () => begin(true));
 document.getElementById("startNoCamBtn").addEventListener("click", () => begin(false));
 document.getElementById("continueBtn").addEventListener("click", () => { winScreen.hidden = true; });
+document.getElementById("winHomeBtn").addEventListener("click", () => location.reload());
+document.getElementById("retryBtn").addEventListener("click", () => location.reload());
 
 function win() {
+  if (gameWon || gameOver) return;
+  gameWon = true;
+  // 괴물 추격 종료 — 살아남아 8개 모두 발견
+  endChase();
   const secs = ((performance.now() - startTime) / 1000) | 0;
+  const chased = monsterSpawnTime > 0;
   document.getElementById("winStats").innerHTML =
-    `Time: <b>${(secs / 60 | 0)}m ${secs % 60}s</b><br>Depth reached: <b>${Math.abs(camera.position.z).toFixed(0)} m</b>`;
+    `Time: <b>${(secs / 60 | 0)}m ${secs % 60}s</b><br>Depth reached: <b>${Math.abs(camera.position.z).toFixed(0)} m</b>` +
+    (chased ? `<br><span style="color:#f2e27a">You outran the entity and found them all!</span>` : "");
   winScreen.hidden = false;
+}
+
+// 추격 시각 효과/사운드 정리
+function endChase() {
+  monsterActive = false;
+  if (monster) monster.visible = false;
+  document.body.classList.remove("chased", "shake");
+  dangerEl.style.opacity = 0;
+  chaseHudEl.classList.remove("show");
+  warningEl.classList.remove("show");
+  audio.setTension(0);
+}
+
+// 괴물 등장: 플레이어 뒤편 먼 곳에 배치
+function spawnMonster() {
+  if (!monster) monster = buildMonster();
+  monsterActive = true;
+  monsterSpawnTime = performance.now();
+  warningEl.classList.remove("show");
+  document.body.classList.add("chased");
+  chaseHudEl.classList.add("show");
+  // 카메라가 보는 반대 방향 20m 지점
+  camera.getWorldDirection(_fwd);
+  const bx = camera.position.x - _fwd.x * 20;
+  const bz = camera.position.z - _fwd.z * 20;
+  monster.position.set(
+    Math.max(-LIMIT + 2, Math.min(LIMIT - 2, bx)),
+    0,
+    Math.max(-LIMIT + 2, Math.min(LIMIT - 2, bz))
+  );
+  monster.visible = true;
+  audio.roar();
+  showToast("⚠ IT FOUND YOU — RUN");
+}
+
+// 잡힘 → 게임 오버
+function lose() {
+  if (gameOver || gameWon) return;
+  gameOver = true;
+  endChase();
+  if (document.pointerLockElement) document.exitPointerLock();
+  const secs = ((performance.now() - startTime) / 1000) | 0;
+  document.getElementById("loseStats").innerHTML =
+    `Survived: <b>${(secs / 60 | 0)}m ${secs % 60}s</b><br>` +
+    `Objects found: <b>${foundKinds.size}/8</b>`;
+  document.getElementById("loseScreen").hidden = false;
+}
+
+const _mfwd = new THREE.Vector3();
+// 매 프레임 괴물 추격 갱신
+function updateMonster(dt, now) {
+  const speed = MON_SPEED;
+
+  // 플레이어를 향해 이동
+  _mfwd.set(
+    camera.position.x - monster.position.x,
+    0,
+    camera.position.z - monster.position.z
+  );
+  const dist = _mfwd.length();
+  if (dist > 0.0001) _mfwd.multiplyScalar(1 / dist);
+
+  let nx = monster.position.x + _mfwd.x * speed * dt;
+  let nz = monster.position.z + _mfwd.z * speed * dt;
+  [nx, nz] = resolveCollision(nx, nz);   // 기둥 회피(플레이어가 유리)
+  monster.position.x = nx;
+  monster.position.z = nz;
+
+  // 플레이어를 바라보게 (좌우로 흔들리는 롤 모션은 제거)
+  monster.rotation.y = Math.atan2(_mfwd.x, _mfwd.z);
+  monster.rotation.z = 0;
+  // 다리(촉수)들이 머리부터 아래로 진짜 물결치듯 출렁임 — 관절마다 위상 지연 → 파동 전파
+  const wave = now * 0.009;
+  for (const tent of monster.userData.tentacles) {
+    const joints = tent.userData.joints;
+    const ph = tent.userData.phase;
+    const lean = tent.userData.lean;
+    for (let i = 0; i < joints.length; i++) {
+      const t = wave - i * 0.7 + ph;          // 관절 인덱스로 지연 → 아래로 흐르는 물결(S자 출렁임)
+      const amp = 0.32 + i * 0.03;             // 끝으로 갈수록 크게 출렁
+      joints[i].rotation.z = Math.sin(t) * amp;
+      joints[i].rotation.x = (i === 0 ? lean * 0.2 : 0) + Math.cos(t * 0.9 + ph) * (amp * 0.7);
+    }
+  }
+  // 아주 미세한 상하 부유(좌우 흔들림 아님)
+  monster.position.y = Math.abs(Math.sin(now * 0.006)) * 0.07;
+
+  // 근접도(0~1): 14m에서 0, 0m에서 1
+  const prox = Math.max(0, Math.min(1, 1 - dist / 14));
+  dangerEl.style.opacity = prox * 0.95;
+  audio.setTension(prox);
+  document.body.classList.toggle("shake", dist < 4);
+
+  // 심장박동: 가까울수록 빠르게
+  audio.beatTimer -= dt;
+  if (audio.beatTimer <= 0) {
+    audio.beat(0.4 + prox * 0.6);
+    audio.beatTimer = 1.15 - prox * 0.75;   // 0.4s ~ 1.15s 간격
+  }
+
+  // 방향 지시기(카메라 기준 각도)
+  camera.getWorldDirection(_fwd);
+  const camAng = Math.atan2(_fwd.x, _fwd.z);
+  const monAng = Math.atan2(monster.position.x - camera.position.x,
+                            monster.position.z - camera.position.z);
+  let rel = (monAng - camAng) * 180 / Math.PI;
+  while (rel > 180) rel -= 360; while (rel < -180) rel += 360;
+  chaseDirEl.style.transform = `rotate(${rel}deg)`;
+  chaseDistEl.textContent = `${dist.toFixed(0)}m`;
+
+  // 잡힘 판정
+  if (dist < CATCH_DIST) lose();
+}
+
+// 힌트: 못 찾은 요소를 흰색 빛으로 7초간 깜빡이게 + 가장 가까운 요소 방향 화살표
+// 첫 발동은 2분(HINT_T), 이후 HINT_INTERVAL(30초)마다 반복
+function updateHint(now, elapsedSec) {
+  if (!hintWasOn && elapsedSec >= nextHintAt && foundKinds.size < KINDS.length) {
+    hintEndsAt = now + HINT_DUR * 1000;
+    hintWasOn = true;
+    nextHintAt += HINT_INTERVAL;                       // 다음 힌트 예약
+    showToast("Hint — the remaining objects are glowing white");
+  }
+  if (!hintWasOn) return;
+
+  if (now < hintEndsAt) {
+    const blink = 0.5 + 0.5 * Math.sin(now * 0.018);   // 흰색 깜빡임
+    let nearest = null, nd = Infinity;
+    for (const it of activeItems) {
+      const show = !collected.has(it.userData.id) && !foundKinds.has(it.userData.kind);
+      const beacon = it.getObjectByName("beacon");
+      const halo = it.getObjectByName("halo");
+      if (beacon) { beacon.visible = show; if (show) beacon.material.opacity = 0.4 + blink * 0.5; }
+      if (show && halo) { halo.material.color.setHex(0xffffff); halo.material.opacity = 0.4 + blink * 0.6; }
+      if (show) {
+        const d = it.position.distanceTo(camera.position);
+        if (d < nd) { nd = d; nearest = it; }
+      }
+    }
+    // 바닥 화살표 — 발밑 조금 앞 바닥에서 가장 가까운 미발견 요소 방향을 가리킴
+    if (nearest) {
+      if (!hintArrow3D) hintArrow3D = buildHintArrow();
+      camera.getWorldDirection(_fwd);
+      const fl = Math.hypot(_fwd.x, _fwd.z) || 1;      // 수평 전방 벡터
+      hintArrow3D.position.set(
+        camera.position.x + (_fwd.x / fl) * 1.8, 0.06,
+        camera.position.z + (_fwd.z / fl) * 1.8
+      );
+      const dx = nearest.position.x - camera.position.x;
+      const dz = nearest.position.z - camera.position.z;
+      hintArrow3D.rotation.y = Math.atan2(dx, dz);      // 로컬 +z가 목표 방향을 향하도록
+      hintArrow3D.userData.mat.opacity = 0.45 + blink * 0.55;
+      hintArrow3D.visible = true;
+    } else if (hintArrow3D) {
+      hintArrow3D.visible = false;
+    }
+  } else {
+    // 힌트 종료 — 원상복구
+    hintWasOn = false;
+    if (hintArrow3D) hintArrow3D.visible = false;
+    for (const it of activeItems) {
+      const beacon = it.getObjectByName("beacon");
+      const halo = it.getObjectByName("halo");
+      if (beacon) beacon.visible = false;
+      if (halo) { halo.material.color.setHex(0xf2e27a); halo.material.opacity = 0; }
+    }
+  }
 }
 
 // ============================================================
@@ -627,7 +1048,7 @@ function loop() {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
-  if (started) {
+  if (started && !gameOver) {
     if (handsOn) hands.tick();
 
     // ---- 이동 의도 결합 ----
@@ -647,7 +1068,7 @@ function loop() {
 
     // 카메라 방향 벡터 (수평)
     const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
-    const speed = 4.2;
+    const speed = PLAYER_SPEED;
     const wishX = (-sinY * mf + cosY * ms) * speed;
     const wishZ = (-cosY * mf - sinY * ms) * speed;
     velocity.x += (wishX - velocity.x) * Math.min(1, dt * 10);
@@ -685,9 +1106,26 @@ function loop() {
       it.userData.t += dt;
       it.rotation.y += dt * 0.15;
     }
-    const elapsed = Math.floor((now - startTime) / 1000);
+    const elapsedSec = (now - startTime) / 1000;
+    const elapsed = Math.floor(elapsedSec);
     document.getElementById("depth").textContent =
       `TIME ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
+
+    // ---- 괴물 추격 상태 머신 ----
+    if (!gameWon) {
+      // 35초: 경고 표시
+      if (!warned && elapsedSec >= WARN_T) {
+        warned = true;
+        warningEl.classList.add("show");
+        showToast("⚠ Something is coming…");
+      }
+      // 40초: 등장 & 추격 시작
+      if (!monsterActive && elapsedSec >= SPAWN_T) spawnMonster();
+      // 추격 갱신
+      if (monsterActive) updateMonster(dt, now);
+      // 2분 힌트(못 찾은 요소 흰색 깜빡임)
+      updateHint(now, elapsedSec);
+    }
   }
 
   // 형광등 깜빡임

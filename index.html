@@ -18,9 +18,30 @@
   <!-- 3D 캔버스 -->
   <canvas id="scene"></canvas>
 
+  <!-- 배경 음악 -->
+  <audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
+
   <!-- 노이즈 / 비네트 오버레이 -->
   <div id="vignette"></div>
   <div id="grain"></div>
+
+  <!-- 추격 위험(빨간) 비네트 -->
+  <div id="dangerVignette"></div>
+
+  <!-- 괴물 접근 경고 배너 -->
+  <div id="warning">
+    <div class="warn-inner">
+      <div class="warn-icon">⚠</div>
+      <div class="warn-text">SOMETHING IS COMING</div>
+      <div class="warn-sub">RUN</div>
+    </div>
+  </div>
+
+  <!-- 괴물 방향 지시기 -->
+  <div id="chaseHud">
+    <span id="chaseDir">▲</span>
+    <span id="chaseDist">--</span>
+  </div>
 
   <!-- 조준점 -->
   <div id="reticle"><span></span></div>
@@ -52,7 +73,9 @@
   <div id="startScreen">
     <div class="start-card">
       <h1>THE&nbsp;BACKROOMS</h1>
-      <p class="tagline">An endless expanse of yellow rooms. Find the 8 hidden objects.</p>
+      <p class="tagline">An endless expanse of yellow rooms. Find the 8 hidden objects.<br>
+        <b style="color:#ff5a4a">WARNING:</b> after 40 seconds an entity starts hunting you (a warning flashes at 35s).<br>
+        If it catches you it's <b>GAME OVER</b> — find all 8 even while chased to <b>WIN</b>.</p>
 
       <div class="find-grid" id="startGrid"></div>
 
@@ -84,6 +107,17 @@
     </div>
   </div>
 
+  <!-- 인트로 시네마틱 (검은 화면) -->
+  <div id="intro" hidden>
+    <div class="intro-lines">
+      <p class="il">Where am I...?</p>
+      <p class="il">Soon, it'll come to get me.</p>
+      <p class="il">I have to find a way out of here.</p>
+    </div>
+    <p id="introHint" class="intro-hint"></p>
+    <button id="introContinue" class="intro-continue">STEP FORWARD</button>
+  </div>
+
   <!-- 완료 화면 -->
   <div id="winScreen" hidden>
     <div class="start-card">
@@ -91,6 +125,17 @@
       <p class="tagline">You have discovered all 8 objects of the Backrooms.<br>…but the exit is still far away.</p>
       <div id="winStats"></div>
       <button id="continueBtn">KEEP EXPLORING</button>
+      <button id="winHomeBtn" class="secondary">BACK TO HOME</button>
+    </div>
+  </div>
+
+  <!-- 게임 오버(잡힘) 화면 -->
+  <div id="loseScreen" hidden>
+    <div class="start-card lose-card">
+      <h1>GAME OVER</h1>
+      <p class="tagline">The entity caught you.<br>It found you in the endless yellow halls.</p>
+      <div id="loseStats"></div>
+      <button id="retryBtn">TRY AGAIN</button>
     </div>
   </div>
 
