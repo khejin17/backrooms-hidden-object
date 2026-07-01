@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#b9a94b" />
+  <title>THE BACKROOMS — Hidden Object Game</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- 3D 캔버스 -->
+  <canvas id="scene"></canvas>
+
+  <!-- 노이즈 / 비네트 오버레이 -->
+  <div id="vignette"></div>
+  <div id="grain"></div>
+
+  <!-- 조준점 -->
+  <div id="reticle"><span></span></div>
+
+  <!-- 상단 HUD -->
+  <div id="hud">
+    <div class="hud-panel">
+      <div class="hud-title">THE BACKROOMS</div>
+      <div class="hud-sub">OBJECTS FOUND</div>
+      <div id="foundList"></div>
+    </div>
+    <div class="hud-panel hud-right">
+      <div id="promptHint">Get closer and <b>SELECT</b></div>
+      <div id="depth">TIME 0:00</div>
+    </div>
+  </div>
+
+  <!-- 손동작 카메라 미리보기 -->
+  <div id="camWrap" class="cam-idle">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="handCanvas"></canvas>
+    <div id="gestureLabel">WAITING FOR HAND…</div>
+  </div>
+
+  <!-- 발견 토스트 -->
+  <div id="toast"></div>
+
+  <!-- 시작 화면 -->
+  <div id="startScreen">
+    <div class="start-card">
+      <h1>THE&nbsp;BACKROOMS</h1>
+      <p class="tagline">An endless expanse of yellow rooms. Find the 8 hidden objects.</p>
+
+      <div class="find-grid" id="startGrid"></div>
+
+      <div class="controls-cols">
+        <div class="ctrl-col">
+          <h3>HAND GESTURES</h3>
+          <ul>
+            <li><b>Open palm</b> → move forward</li>
+            <li><b>Make a fist</b> → move back</li>
+            <li><b>Hand edge (chop)</b> → stop</li>
+            <li><b>Palm nearer / farther</b> → speed</li>
+            <li><b>Hand left / right</b> → turn</li>
+            <li><b>Point index / pinch</b> → select</li>
+          </ul>
+        </div>
+        <div class="ctrl-col">
+          <h3>KEYBOARD (FALLBACK)</h3>
+          <ul>
+            <li><b>W A S D</b> → move</li>
+            <li><b>Mouse</b> → look (click to lock)</li>
+            <li><b>E / Click</b> → select</li>
+          </ul>
+        </div>
+      </div>
+
+      <button id="startBtn">ENABLE WEBCAM &amp; START</button>
+      <button id="startNoCamBtn" class="secondary">START WITH KEYBOARD ONLY</button>
+      <p class="cam-note">Your webcam feed is processed entirely in-browser and never leaves your device.</p>
+    </div>
+  </div>
+
+  <!-- 완료 화면 -->
+  <div id="winScreen" hidden>
+    <div class="start-card">
+      <h1>ALL FOUND</h1>
+      <p class="tagline">You have discovered all 8 objects of the Backrooms.<br>…but the exit is still far away.</p>
+      <div id="winStats"></div>
+      <button id="continueBtn">KEEP EXPLORING</button>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
