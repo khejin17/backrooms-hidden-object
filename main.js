@@ -15,14 +15,12 @@ const PLAYER_R = 0.55;
 const EYE_H = 1.65;
 const REACH = 5.2;           // 요소 선택 사거리
 const AISLE_HALF = COL_SPACING / 2 - PILLAR_HALF; // 통로 반폭
-const LIMIT = 100;           // 시작점 기준 사방 이동 제한(걸음)
-
 // ---- 괴물 추격 파라미터 ----
 const WARN_T = 35;           // 이 시각(초)부터 경고 표시
 const SPAWN_T = 40;          // 이 시각(초)에 괴물 등장 & 추격 시작
 const CATCH_DIST = 1.25;     // 이 거리 안으로 들어오면 잡힘(게임 오버)
 const PLAYER_SPEED = 4.2;    // 플레이어 이동 속도
-const MON_SPEED = PLAYER_SPEED * 0.85;  // 괴물 속도 = 플레이어의 85% (≈3.57) — 계속 달리면 따돌릴 수 있음
+const MON_SPEED = PLAYER_SPEED * 0.90;  // 괴물 속도 = 플레이어의 90% (≈3.78) — 계속 달리면 따돌릴 수 있음
 const HINT_T = 120;          // 2분까지 못 찾으면 첫 힌트 발동
 const HINT_INTERVAL = 30;    // 첫 힌트 이후 30초마다 반복
 const HINT_DUR = 7;          // 힌트(흰색 깜빡임 + 화살표) 지속 시간(초)
@@ -465,6 +463,23 @@ function makeTentacle(phase) {
   return group;
 }
 
+// 검은 안개(연기) 스프라이트용 방사형 텍스처 — 중심 진한 검정 → 가장자리 투명
+let _smokeTex = null;
+function smokeTexture() {
+  if (_smokeTex) return _smokeTex;
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const ctx = c.getContext("2d");
+  const grd = ctx.createRadialGradient(64, 64, 4, 64, 64, 64);
+  grd.addColorStop(0.0, "rgba(0,0,0,0.95)");
+  grd.addColorStop(0.45, "rgba(0,0,0,0.55)");
+  grd.addColorStop(1.0, "rgba(0,0,0,0)");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 128, 128);
+  _smokeTex = new THREE.CanvasTexture(c);
+  return _smokeTex;
+}
+
 function buildMonster() {
   const g = new THREE.Group();
   const bodyH = 2.7;
@@ -474,8 +489,8 @@ function buildMonster() {
   const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, bodyH, 8), matEntity);
   spine.position.y = bodyH / 2; g.add(spine);
 
-  // 머리
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), matEntity);
+  // 머리 (살짝 작게)
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), matEntity);
   head.position.y = headY + 0.05; head.scale.set(1, 1.15, 0.9); g.add(head);
 
   // 챙 넓은 모자(레퍼런스의 특징)
@@ -487,8 +502,8 @@ function buildMonster() {
   // 눈 두 개(붉은 발광)
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
   for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), eyeMat);
-    eye.position.set(s * 0.08, headY + 0.08, 0.19);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8), eyeMat);
+    eye.position.set(s * 0.07, headY + 0.07, 0.155);
     g.add(eye);
   }
 
@@ -511,6 +526,42 @@ function buildMonster() {
 
   g.userData.tentacles = tentacles;
   g.userData.bodyH = bodyH;
+
+  // ---- 검은 안개(연기) 아우라 — 발밑은 짙게 바닥을 가리고, 몸 절반까지만 피어오름 ----
+  const smoke = [];
+  const tex = smokeTexture();
+  const half = bodyH * 0.5;   // 안개가 오르는 최대 높이 ≈ 몸의 절반
+
+  function addSmoke(base, y, opacity, bob, spread) {
+    const mat = new THREE.SpriteMaterial({
+      map: tex, color: 0x000000, transparent: true,
+      opacity, depthWrite: false, fog: false,
+    });
+    const s = new THREE.Sprite(mat);
+    s.scale.set(base, base, 1);
+    // 방사형으로 배치 — spread가 클수록 바닥 옆으로 넓게 퍼짐
+    const a = Math.random() * Math.PI * 2, r = Math.random() * spread;
+    s.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+    s.userData = {
+      base, bob,
+      spin: (Math.random() - 0.5) * 0.4,
+      pulse: 0.5 + Math.random() * 1.3,
+      phase: Math.random() * Math.PI * 2,
+      cx: s.position.x, cz: s.position.z, cy: s.position.y,
+      maxY: half,
+      radius: 0.25 + Math.random() * 0.4 + spread * 0.3,   // 드리프트 반경도 퍼짐에 비례
+    };
+    g.add(s);
+    smoke.push(s);
+  }
+
+  // 바닥 안개: 넓고 낮고 짙게 + 옆으로 자연스럽게 퍼짐 → 발밑 바닥이 잘 안 보이도록
+  for (let k = 0; k < 5; k++) addSmoke(3.4 + Math.random() * 1.8, 0.08 + Math.random() * 0.28, 0.62, 0.06, 1.5);
+  // 몸통 안개: 절반 높이까지, 옅게(수 줄임) 완만하게 피어오름
+  for (let k = 0; k < 3; k++) addSmoke(1.4 + Math.random() * 0.8, 0.5 + Math.random() * (half - 0.5), 0.26, 0.12, 0.5);
+
+  g.userData.smoke = smoke;
+
   g.visible = false;
   scene.add(g);
   return g;
@@ -894,11 +945,7 @@ function spawnMonster() {
   camera.getWorldDirection(_fwd);
   const bx = camera.position.x - _fwd.x * 20;
   const bz = camera.position.z - _fwd.z * 20;
-  monster.position.set(
-    Math.max(-LIMIT + 2, Math.min(LIMIT - 2, bx)),
-    0,
-    Math.max(-LIMIT + 2, Math.min(LIMIT - 2, bz))
-  );
+  monster.position.set(bx, 0, bz);
   monster.visible = true;
   audio.roar();
   showToast("⚠ IT FOUND YOU — RUN");
@@ -951,6 +998,20 @@ function updateMonster(dt, now) {
       const amp = 0.32 + i * 0.03;             // 끝으로 갈수록 크게 출렁
       joints[i].rotation.z = Math.sin(t) * amp;
       joints[i].rotation.x = (i === 0 ? lean * 0.2 : 0) + Math.cos(t * 0.9 + ph) * (amp * 0.7);
+    }
+  }
+  // 검은 안개 아우라 — 천천히 회전·드리프트하며 크기 맥동
+  if (monster.userData.smoke) {
+    const ts = now * 0.001;
+    for (const s of monster.userData.smoke) {
+      const u = s.userData;
+      const ang = ts * u.spin + u.phase;
+      s.position.x = u.cx + Math.cos(ang) * u.radius;
+      s.position.z = u.cz + Math.sin(ang) * u.radius;
+      // 완만한 상하 유동 — 몸 절반(maxY)을 넘지 않도록 제한
+      s.position.y = Math.min(u.maxY, u.cy + Math.abs(Math.sin(ts * 0.8 + u.phase)) * u.bob);
+      const sc = u.base * (1 + Math.sin(ts * u.pulse + u.phase) * 0.12);
+      s.scale.set(sc, sc, 1);
     }
   }
   // 아주 미세한 상하 부유(좌우 흔들림 아님)
@@ -1077,12 +1138,6 @@ function loop() {
     let nx = camera.position.x + velocity.x * dt;
     let nz = camera.position.z + velocity.z * dt;
     [nx, nz] = resolveCollision(nx, nz);
-    // 시작점 기준 사방 ±LIMIT 걸음으로 제한
-    const B = LIMIT - PLAYER_R;
-    if (nx > B) { nx = B; velocity.x = Math.min(0, velocity.x); }
-    else if (nx < -B) { nx = -B; velocity.x = Math.max(0, velocity.x); }
-    if (nz > B) { nz = B; velocity.z = Math.min(0, velocity.z); }
-    else if (nz < -B) { nz = -B; velocity.z = Math.max(0, velocity.z); }
     camera.position.x = nx;
     camera.position.z = nz;
 
@@ -1142,27 +1197,6 @@ function loop() {
   renderer.render(scene, camera);
 }
 let flickerTime = 0;
-
-// 경계 벽 (시작점 기준 ±LIMIT) — 백룸 벽지로 마감
-function buildBoundaryWalls() {
-  const span = LIMIT * 2;
-  const wallMat = new THREE.MeshStandardMaterial({
-    map: (() => { const t = texWall.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(span / 3, WALL_H / 3); return t; })(),
-    roughness: 0.95, side: THREE.DoubleSide,
-  });
-  const walls = [
-    [new THREE.BoxGeometry(0.4, WALL_H, span), LIMIT, 0],
-    [new THREE.BoxGeometry(0.4, WALL_H, span), -LIMIT, 0],
-    [new THREE.BoxGeometry(span, WALL_H, 0.4), 0, LIMIT],
-    [new THREE.BoxGeometry(span, WALL_H, 0.4), 0, -LIMIT],
-  ];
-  for (const [geo, x, z] of walls) {
-    const w = new THREE.Mesh(geo, wallMat);
-    w.position.set(x, WALL_H / 2, z);
-    scene.add(w);
-  }
-}
-buildBoundaryWalls();
 
 // 초기 청크
 updateChunks();
