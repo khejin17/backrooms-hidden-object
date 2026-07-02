@@ -489,21 +489,11 @@ function buildMonster() {
   const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, bodyH, 8), matEntity);
   spine.position.y = bodyH / 2; g.add(spine);
 
-  // 머리 (살짝 작게)
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), matEntity);
-  head.position.y = headY + 0.05; head.scale.set(1, 1.15, 0.9); g.add(head);
-
-  // 챙 넓은 모자(레퍼런스의 특징)
-  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.62, 0.06, 20), matEntity);
-  brim.position.y = headY + 0.2; g.add(brim);
-  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.34, 16), matEntity);
-  crown.position.y = headY + 0.38; g.add(crown);
-
-  // 눈 두 개(붉은 발광)
+  // 머리/모자 없이 허공에 뜬 붉은 눈 두 개만 (발광)
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
   for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8), eyeMat);
-    eye.position.set(s * 0.07, headY + 0.07, 0.155);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 10), eyeMat);
+    eye.position.set(s * 0.09, headY + 0.05, 0.05);
     g.add(eye);
   }
 
