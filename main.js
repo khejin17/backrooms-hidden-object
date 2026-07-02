@@ -489,11 +489,15 @@ function buildMonster() {
   const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, bodyH, 8), matEntity);
   spine.position.y = bodyH / 2; g.add(spine);
 
-  // 머리/모자 없이 허공에 뜬 붉은 눈 두 개만 (발광)
+  // 머리 (모자 없이 작은 구체) — 눈이 뜬 자리를 자연스럽게
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), matEntity);
+  head.position.y = headY + 0.05; head.scale.set(1, 1.15, 0.9); g.add(head);
+
+  // 붉은 눈 두 개 (발광)
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
   for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 10), eyeMat);
-    eye.position.set(s * 0.09, headY + 0.05, 0.05);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 10), eyeMat);
+    eye.position.set(s * 0.075, headY + 0.07, 0.16);
     g.add(eye);
   }
 
@@ -517,10 +521,10 @@ function buildMonster() {
   g.userData.tentacles = tentacles;
   g.userData.bodyH = bodyH;
 
-  // ---- 검은 안개(연기) 아우라 — 발밑은 짙게 바닥을 가리고, 몸 절반까지만 피어오름 ----
+  // ---- 검은 안개(연기) 아우라 — 발밑은 짙게 바닥을 가리고, 몸 1/3 높이까지만 피어오름 ----
   const smoke = [];
   const tex = smokeTexture();
-  const half = bodyH * 0.5;   // 안개가 오르는 최대 높이 ≈ 몸의 절반
+  const half = bodyH / 3;   // 안개가 오르는 최대 높이 ≈ 몸의 1/3
 
   function addSmoke(base, y, opacity, bob, spread) {
     const mat = new THREE.SpriteMaterial({
@@ -546,9 +550,9 @@ function buildMonster() {
   }
 
   // 바닥 안개: 넓고 낮고 짙게 + 옆으로 자연스럽게 퍼짐 → 발밑 바닥이 잘 안 보이도록
-  for (let k = 0; k < 5; k++) addSmoke(3.4 + Math.random() * 1.8, 0.08 + Math.random() * 0.28, 0.62, 0.06, 1.5);
-  // 몸통 안개: 절반 높이까지, 옅게(수 줄임) 완만하게 피어오름
-  for (let k = 0; k < 3; k++) addSmoke(1.4 + Math.random() * 0.8, 0.5 + Math.random() * (half - 0.5), 0.26, 0.12, 0.5);
+  for (let k = 0; k < 5; k++) addSmoke(3.4 + Math.random() * 1.8, 0.06 + Math.random() * 0.2, 0.62, 0.06, 1.5);
+  // 몸통 안개: 1/3 높이까지만, 옅게 완만하게 피어오름
+  for (let k = 0; k < 3; k++) addSmoke(1.4 + Math.random() * 0.8, 0.3 + Math.random() * (half - 0.3), 0.26, 0.12, 0.5);
 
   g.userData.smoke = smoke;
 
